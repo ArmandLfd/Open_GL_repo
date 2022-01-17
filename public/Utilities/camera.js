@@ -1,10 +1,12 @@
-var make_camera = function(canvas, position, up, yaw, pitch,vac) {
+var make_camera = function(canvas, positionInit, upInit, yaw, pitch,vac) {
 
     const CameraMovement = {
         FORWARD: 1,
         BACKWARD: 2,
         LEFT: 3,
-        RIGHT: 4
+        RIGHT: 4,
+        UP: 5,
+        DOWN:6,
     };
 
     let origin = glMatrix.vec3.fromValues(0,0,0);
@@ -13,6 +15,8 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
     var right_origin = glMatrix.vec3.fromValues(-1,0,0);
     let right = glMatrix.vec3.copy(glMatrix.vec3.create(),right_origin);
 
+    let position = glMatrix.vec3.add(glMatrix.vec3.create(),vac.getPos(),positionInit);
+    let up = glMatrix.vec3.copy(glMatrix.vec3.create(),upInit);
     var movement_speed = 0.5;
     var mouse_sensitivity = 0.5;
     var zoom = 0.0; // Not used anymore
@@ -28,12 +32,63 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
     var mouse_prev_x = 0.0;
     var mouse_prev_y = 0.0;
 
+    const timeActionConst = 0.05;
+    let dicTimeDir={
+        "FORWARD": 0,
+        "BACKWARD": 0,
+        "LEFT": 0,
+        "RIGHT": 0,
+        "UP": 0,
+        "DOWN":0,
+    };
+    let dictDirOrign = {
+        "FORWARD": glMatrix.vec3.fromValues(0,0,1),
+        "BACKWARD": glMatrix.vec3.fromValues(0,0,-1),
+        "LEFT": glMatrix.vec3.fromValues(1,0,0),
+        "RIGHT": glMatrix.vec3.fromValues(-1,0,0),
+        "UP": glMatrix.vec3.fromValues(0,1,0),
+        "DOWN":glMatrix.vec3.fromValues(0,-1,0),
+    };
+
+    let dictDir = {
+        "FORWARD": glMatrix.vec3.fromValues(0,0,1),
+        "BACKWARD": glMatrix.vec3.fromValues(0,0,-1),
+        "LEFT": glMatrix.vec3.fromValues(1,0,0),
+        "RIGHT": glMatrix.vec3.fromValues(-1,0,0),
+        "UP": glMatrix.vec3.fromValues(0,1,0),
+        "DOWN":glMatrix.vec3.fromValues(0,-1,0),
+    };
+
     register_keyboard();
     register_mouse();
     update_camera_vectors();
 
     function update(delta_time) {
         dt = delta_time;
+        let objAmmo = vac.getRigidBody();
+        let velocityPrev = objAmmo.getLinearVelocity();
+        let velocityVector = [velocityPrev.x(),velocityPrev.y(),velocityPrev.z()];
+        for(var key in dicTimeDir){
+            var delta = dt-dicTimeDir[key];
+            if(delta <= timeActionConst && dicTimeDir[key] !== 0){
+                for(var i = 0;i<velocityVector.length;i++){
+                    if(dictDir[key][i] !== 0)
+                        velocityVector[i] = dictDir[key][i];
+                }
+            }
+            else if(delta > timeActionConst && dicTimeDir[key] !== 0){
+                for(i = 0;i<velocityVector.length;i++){
+                    if(dictDir[key][i] !== 1)
+                        velocityVector[i] = 0;
+                }
+                dicTimeDir[key] = 0;
+            }
+        }
+        objAmmo.setLinearVelocity(new Ammo.btVector3(velocityVector[0],velocityVector[1],velocityVector[2]));
+    }
+
+    function updatePosition(){
+        glMatrix.vec3.add(position,vac.getPos(),positionInit);
     }
 
     function register_keyboard() {
@@ -46,24 +101,29 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
             }
 
             if (key === 's' || key === '5' || key === 'u') {
-                process_keyboard(CameraMovement.BACKWARD);
+                process_keyboard("BACKWARD");
                 return;
             } else if (key === 'z' || key === '8' || key === 'é') {
-                process_keyboard(CameraMovement.FORWARD);
+                process_keyboard("FORWARD");
                 return;
             } else if (key === 'q' || key === '4' || key === 'a') {
-                process_keyboard(CameraMovement.LEFT);
+                process_keyboard("LEFT");
                 return;
             } else if (key === 'd' || key === '6' || key === 'i') {
-                process_keyboard(CameraMovement.RIGHT);
+                process_keyboard("RIGHT");
                 return;
-            } else if (key === 'z' && key == 'd'){
-                process_keyboard(CameraMovement.FORWARD);
-                process_keyboard(CameraMovement.RIGHT);
+            }else if (key === ' ') {
+                process_keyboard("UP");
+                return;
+            }else if (key === 'Shift') {
+                process_keyboard("DOWN");
+                return;
+            }else if (key === 'z' && key == 'd'){
+                process_keyboard("FORWARD");
+                process_keyboard("RIGHT");
                 return;
             }
 
-            // TODO register_mouse not yet working
             else if (key === 'ArrowUp' || key === '+' || key === 'Add') {
                 process_mouse_movement(0, 1.0);
                 return;
@@ -104,7 +164,7 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
     }
 
     function get_view_matrix() {
-        var vac_pos = vac.get_pos();
+        var vac_pos = vac.getPos();
 
         let position_tmp = glMatrix.vec3.create();
         let position_final = glMatrix.vec3.create();
@@ -113,7 +173,12 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
         glMatrix.vec3.rotateY(front,front_origin,origin,-yawr);
         glMatrix.vec3.rotateY(right,right_origin,origin,-yawr);
 
-        vac.rotate(prev_yawr-yawr);
+        vac.rotateY(-yawr);
+
+        for(var key in dictDir){
+            glMatrix.vec3.rotateY(dictDir[key],dictDirOrign[key],origin,-yawr);
+        }
+
         prev_yawr = yawr;
         View = glMatrix.mat4.create();
         View = glMatrix.mat4.lookAt(View, position_final, vac_pos, up);
@@ -128,47 +193,7 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
     }
 
     function process_keyboard(direction) {
-        var velocity = movement_speed;// * dt;
-        let tmp = glMatrix.vec3.create();
-        if (direction == CameraMovement.FORWARD) {
-            tmp = glMatrix.vec3.scale(tmp, front_origin, velocity);
-            vac.translate_model(tmp);
-            tmp = glMatrix.vec3.scale(tmp, front, velocity);
-            position = glMatrix.vec3.add(position, position, tmp);
-            vac.translate_pos(tmp);
-
-        }
-        if (direction == CameraMovement.BACKWARD) {
-            tmp = glMatrix.vec3.scale(tmp, front_origin, velocity);
-            tmp = glMatrix.vec3.negate(tmp,tmp);
-            vac.translate_model(tmp);
-            tmp = glMatrix.vec3.scale(tmp, front, velocity);
-            tmp = glMatrix.vec3.negate(tmp,tmp);
-            position = glMatrix.vec3.add(position, position, tmp);
-            vac.translate_pos(tmp);
-            // vac_shader.model = glMatrix.mat4.translate(vac_obj.model,vac_obj.model,tmp);
-            //position -= front + velocity;
-        }
-        if (direction == CameraMovement.LEFT) {
-            tmp = glMatrix.vec3.scale(tmp, right_origin, velocity);
-            tmp = glMatrix.vec3.negate(tmp,tmp);
-            vac.translate_model(tmp);
-            tmp = glMatrix.vec3.scale(tmp, right, velocity);
-            tmp = glMatrix.vec3.negate(tmp,tmp);
-            position = glMatrix.vec3.add(position, position, tmp);
-            vac.translate_pos(tmp);
-            // vac_shader.model = glMatrix.mat4.translate(vac_obj.model,vac_obj.model,tmp);
-            //position -= right + velocity;
-        }
-        if (direction == CameraMovement.RIGHT) {
-            tmp = glMatrix.vec3.scale(tmp, right_origin, velocity);
-            vac.translate_model(tmp);
-            tmp = glMatrix.vec3.scale(tmp, right, velocity);
-            position = glMatrix.vec3.add(position, position, tmp);
-            vac.translate_pos(tmp);
-            // vac_shader.model = glMatrix.mat4.translate(vac_obj.model,vac_obj.model,tmp);
-            //position += right + velocity;
-        }
+        dicTimeDir[direction] = dt;
     }
 
     function process_mouse_movement(xoffset, yoffset, constrain_pitch = true) {
@@ -176,7 +201,7 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
         yoffset *= mouse_sensitivity;
 
         yaw += xoffset;
-        pitch += yoffset;
+        //pitch += yoffset;
 
         // Don't flip screen if pitch is out of bounds
         if (constrain_pitch) {
@@ -187,10 +212,6 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
                 pitch = -max_pitch
             }
         }
-
-        //console.log("yaw and pitch : ", yaw, pitch);
-
-        // Update front, right, up with the new Euler angles
         update_camera_vectors();
     }
 
@@ -212,22 +233,12 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
 
     function update_camera_vectors() {
 
-        yawr = deg2rad(yaw)
-        pitchr = deg2rad(pitch)
+        yawr = deg2rad(yaw);
+        pitchr = deg2rad(pitch);
 
         fx = Math.cos(yawr)* Math.cos(pitchr);
         fy = Math.sin(pitchr);
         fz = Math.sin(yawr) * Math.cos(pitchr);
-
-        //front = glMatrix.vec3.fromValues(fx, fy, fz);
-        // //front = glMatrix.vec3.normalize(front, front);
-
-        // // recompute right, up
-        //right = glMatrix.vec3.cross(right, front, world_up);
-        //right = glMatrix.vec3.normalize(right, right);
-
-        //up = glMatrix.vec3.cross(up, right, front);
-
     }
 
     function get_position() {
@@ -265,5 +276,6 @@ var make_camera = function(canvas, position, up, yaw, pitch,vac) {
         get_position: get_position,
         show_projection_html: show_projection_html,
         show_view_html: show_view_html,
+        updatePosition:updatePosition,
     }
-}
+};

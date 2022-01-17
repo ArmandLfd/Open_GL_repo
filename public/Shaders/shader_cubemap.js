@@ -10,6 +10,9 @@ const shader_V_cubemap = `
       void main() {
         vec4 frag_coord = vec4(position, 1.0);
         gl_Position = (P*mat4(mat3(V))*frag_coord).xyww;
+        
+        //remove errors/warning
+        vec3 errorHandler = normal;
 
         v_texcoord = position;
       }
@@ -19,7 +22,6 @@ const shader_F_cubemap = `
       precision mediump float;
       varying vec3 v_texcoord;
 
-      // We have a samplerCube this time! not a 2D texture
       uniform samplerCube u_cubemap;
 
       void main() {
